@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>ccusage Status</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 8px;
+            padding: 20px;
+            background: #fafafa;
+            font-size: 13px;
+            border-radius: 8px;
+            color: #2c2c2c;
+            box-shadow: 0 12px 48px rgba(0, 0, 0, 0.18), 0 4px 16px rgba(0, 0, 0, 0.08);
+            border: 1px solid #e1e1e1;
+            font-weight: 400;
+            letter-spacing: -0.01em;
+        }
+        .header {
+            font-weight: 600;
+            font-size: 16px;
+            color: #1a1a1a;
+            margin-bottom: 16px;
+            text-align: center;
+            letter-spacing: -0.02em;
+        }
+        .status {
+            background: #ffffff;
+            padding: 16px;
+            border-radius: 6px;
+            border: 1px solid #e8e8e8;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+        }
+        .row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding: 6px 0;
+            border-bottom: 1px solid #f5f5f5;
+        }
+        .row:last-of-type {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+        .label {
+            color: #666666;
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: -0.005em;
+        }
+        .value {
+            font-weight: 600;
+            color: #1a1a1a;
+            letter-spacing: -0.01em;
+            font-variant-numeric: tabular-nums;
+        }
+        .cost {
+            color: #2c2c2c;
+            font-size: 15px;
+            font-weight: 700;
+        }
+        .loading {
+            text-align: center;
+            color: #888888;
+            font-style: italic;
+            font-weight: 400;
+        }
+        .error {
+            color: #d32f2f;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .refresh-btn {
+            background: #f8f8f8;
+            border: 1px solid #d1d1d1;
+            color: #4a4a4a;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            margin-top: 12px;
+            width: 100%;
+            transition: all 0.15s ease;
+            font-family: inherit;
+            letter-spacing: -0.005em;
+        }
+        .refresh-btn:hover {
+            background: #eeeeee;
+            border-color: #c1c1c1;
+        }
+        .refresh-btn:active {
+            transform: translateY(0.5px);
+        }
+    </style>
+</head>
+<body>
+    <div class="header" id="header">ccusage Status</div>
+    <div class="status" id="status">
+        <div class="row">
+            <span class="label">Cost:</span>
+            <span class="value cost" id="cost">$0.00</span>
+        </div>
+        <div class="row">
+            <span class="label">Tokens:</span>
+            <span class="value" id="tokens">0</span>
+        </div>
+        <div class="row">
+            <span class="label">Status:</span>
+            <span class="value" id="status-text">Loading...</span>
+        </div>
+        <button class="refresh-btn" onclick="refreshData()">↻ Refresh</button>
+    </div>
+    <script>
+        const { ipcRenderer } = require('electron');
+        
+        let currentDataType = 'daily';
+        
+        // データタイプ別のタイトル
+        const typeTitles = {
+            daily: '📊 Today\'s Usage',
+            monthly: '📅 Monthly Usage',
+            session: '💬 Session Usage'
+        };
+        
+        async function loadCcusageData(type = currentDataType) {
+            try {
+                console.log(`🔄 ${type}データ取得リクエスト開始...`);
+                
+                // ローディング状態を表示
+                document.getElementById('status-text').textContent = 'Loading...';
+                document.getElementById('status-text').className = 'value loading';
+                
+                const result = await ipcRenderer.invoke('get-ccusage-data', type);
+                console.log('📦 受信データ:', result);
+                
+                if (result.success) {
+                    const data = result.data;
+                    console.log('✅ データ解析成功:', data);
+                    
+                    updateUI(data, type);
+                } else {
+                    console.error('❌ データ取得失敗:', result.error);
+                    showError(result.error);
+                }
+            } catch (error) {
+                console.error('❌ 例外エラー:', error);
+                showError('データ読み込みエラー');
+            }
+        }
+        
+        function updateUI(data, type) {
+            // ヘッダーを更新
+            document.getElementById('header').textContent = typeTitles[type] || 'ccusage Status';
+            
+            // データを表示
+            const cost = data.totals.totalCost.toFixed(2);
+            const tokens = data.totals.totalTokens.toLocaleString();
+            
+            document.getElementById('cost').textContent = `$${cost}`;
+            document.getElementById('tokens').textContent = tokens;
+            document.getElementById('status-text').textContent = 'Ready';
+            document.getElementById('status-text').className = 'value';
+            
+            // 既存のモデル行を削除
+            const existingModelRow = document.getElementById('model-row');
+            if (existingModelRow) {
+                existingModelRow.remove();
+            }
+            
+            // モデル情報を表示
+            let modelsData = [];
+            if (type === 'daily' && data.daily && data.daily.length > 0) {
+                modelsData = data.daily[0].modelsUsed;
+            } else if (type === 'monthly' && data.monthly && data.monthly.length > 0) {
+                modelsData = data.monthly[0].modelsUsed;
+            }
+            
+            if (modelsData && modelsData.length > 0) {
+                const models = modelsData.join(', ');
+                const statusDiv = document.getElementById('status');
+                const modelRow = document.createElement('div');
+                modelRow.className = 'row';
+                modelRow.id = 'model-row';
+                modelRow.innerHTML = `
+                    <span class="label">Models:</span>
+                    <span class="value" style="font-size: 10px;">${models.replace(/claude-/g, '').replace(/-4-20250514/g, '')}</span>
+                `;
+                statusDiv.insertBefore(modelRow, statusDiv.lastElementChild);
+            }
+        }
+        
+        function showError(message) {
+            document.getElementById('status-text').textContent = `Error: ${message}`;
+            document.getElementById('status-text').className = 'value error';
+        }
+        
+        function refreshData() {
+            loadCcusageData(currentDataType);
+        }
+        
+        // IPCイベントリスナー
+        ipcRenderer.on('set-data-type', (event, type) => {
+            currentDataType = type;
+            loadCcusageData(type);
+        });
+        
+        ipcRenderer.on('change-data-type', (event, type) => {
+            currentDataType = type;
+            loadCcusageData(type);
+        });
+        
+        // 自動更新データの受信
+        ipcRenderer.on('auto-refresh-data', (event, data) => {
+            if (currentDataType === 'daily') {
+                updateUI(data, 'daily');
+            }
+        });
+        
+        // ページロード時にデータを取得
+        window.addEventListener('DOMContentLoaded', () => {
+            loadCcusageData();
+        });
+    </script>
+</body>
+</html>
