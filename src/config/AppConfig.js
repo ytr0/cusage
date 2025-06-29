@@ -8,7 +8,7 @@ class AppConfig {
     this.defaultConfig = {
       cacheTimeout: 5 * 60 * 1000, // 5分
       autoRefresh: true,
-      autoRefreshInterval: 60 * 1000, // 1分
+      autoRefreshInterval: 10 * 60 * 1000, // 10分
       showNotifications: true,
       theme: 'auto', // 'light', 'dark', 'auto'
       startWithSystem: false,

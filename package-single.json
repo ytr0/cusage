@@ -1,0 +1,21 @@
+{
+  "name": "ccusage-menubar-single",
+  "version": "1.0.0",
+  "description": "A single-file menubar app to display ccusage results",
+  "main": "ccusage-app-single.js",
+  "scripts": {
+    "start": "electron ccusage-app-single.js",
+    "dev": "electron ccusage-app-single.js --dev"
+  },
+  "keywords": [
+    "electron",
+    "ccusage",
+    "menubar",
+    "single-file"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.3.3"
+  }
+}
