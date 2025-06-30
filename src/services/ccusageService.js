@@ -6,8 +6,16 @@ class CcusageService {
     this.cacheTimeout = 5 * 60 * 1000; // 5分間キャッシュ
   }
 
+  // 日本時間での今日の日付を取得
+  getJapanToday() {
+    const now = new Date();
+    // 日本時間（UTC+9）に変換
+    const japanTime = new Date(now.getTime() + (9 * 60 * 60 * 1000));
+    return japanTime.toISOString().split('T')[0]; // YYYY-MM-DD format
+  }
+
   async getDailyUsage() {
-    const cacheKey = 'daily-' + new Date().toDateString();
+    const cacheKey = 'daily-' + this.getJapanToday();
     
     // キャッシュをチェック
     if (this.cache.has(cacheKey)) {
@@ -77,6 +85,29 @@ class CcusageService {
         }
       });
     });
+  }
+
+  async getDailyAndMonthlyUsage() {
+    try {
+      console.log('🔄 今日と月次データを並行取得中...');
+      const [dailyData, monthlyData] = await Promise.all([
+        this.getDailyUsage(),
+        this.getMonthlyUsage()
+      ]);
+      
+      console.log('✅ 並行取得成功');
+      return {
+        daily: dailyData,
+        monthly: monthlyData,
+        combined: {
+          ...dailyData,
+          monthlyTotals: monthlyData.totals
+        }
+      };
+    } catch (error) {
+      console.error('❌ 並行取得エラー:', error.message);
+      throw error;
+    }
   }
 
   clearCache() {

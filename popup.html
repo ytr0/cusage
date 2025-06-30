@@ -102,8 +102,12 @@
     <div class="header" id="header">ccusage Status</div>
     <div class="status" id="status">
         <div class="row">
-            <span class="label">Cost:</span>
+            <span class="label">Today's Cost:</span>
             <span class="value cost" id="cost">$0.00</span>
+        </div>
+        <div class="row">
+            <span class="label">Monthly Total:</span>
+            <span class="value cost" id="monthly-cost">$0.00</span>
         </div>
         <div class="row">
             <span class="label">Tokens:</span>
@@ -122,7 +126,7 @@
         
         // データタイプ別のタイトル
         const typeTitles = {
-            daily: '📊 Today\'s Usage',
+            daily: '📊 Today\'s Usage & Monthly Total',
             monthly: '📅 Monthly Usage',
             session: '💬 Session Usage'
         };
@@ -135,17 +139,39 @@
                 document.getElementById('status-text').textContent = 'Loading...';
                 document.getElementById('status-text').className = 'value loading';
                 
-                const result = await ipcRenderer.invoke('get-ccusage-data', type);
-                console.log('📦 受信データ:', result);
-                
-                if (result.success) {
-                    const data = result.data;
-                    console.log('✅ データ解析成功:', data);
+                // daily表示の場合は月間データも並行して取得
+                if (type === 'daily') {
+                    const [dailyResult, monthlyResult] = await Promise.all([
+                        ipcRenderer.invoke('get-ccusage-data', 'daily'),
+                        ipcRenderer.invoke('get-ccusage-data', 'monthly')
+                    ]);
                     
-                    updateUI(data, type);
+                    console.log('📦 受信データ - Daily:', dailyResult);
+                    console.log('📦 受信データ - Monthly:', monthlyResult);
+                    
+                    if (dailyResult.success && monthlyResult.success) {
+                        const combinedData = {
+                            ...dailyResult.data,
+                            monthlyTotals: monthlyResult.data.totals
+                        };
+                        console.log('✅ データ解析成功:', combinedData);
+                        updateUI(combinedData, type);
+                    } else {
+                        console.error('❌ データ取得失敗:', dailyResult.error || monthlyResult.error);
+                        showError(dailyResult.error || monthlyResult.error);
+                    }
                 } else {
-                    console.error('❌ データ取得失敗:', result.error);
-                    showError(result.error);
+                    const result = await ipcRenderer.invoke('get-ccusage-data', type);
+                    console.log('📦 受信データ:', result);
+                    
+                    if (result.success) {
+                        const data = result.data;
+                        console.log('✅ データ解析成功:', data);
+                        updateUI(data, type);
+                    } else {
+                        console.error('❌ データ取得失敗:', result.error);
+                        showError(result.error);
+                    }
                 }
             } catch (error) {
                 console.error('❌ 例外エラー:', error);
@@ -153,36 +179,100 @@
             }
         }
         
+        // 日本時間での今日の日付を取得する関数
+        function getJapanToday() {
+            const now = new Date();
+            // 日本時間（UTC+9）に変換
+            const japanTime = new Date(now.getTime() + (9 * 60 * 60 * 1000));
+            return japanTime.toISOString().split('T')[0]; // YYYY-MM-DD format
+        }
+        
+        // 日本時間での日付フォーマット
+        function formatJapanDate(dateString) {
+            const date = new Date(dateString + 'T00:00:00+09:00');
+            return date.toLocaleDateString('ja-JP', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                weekday: 'short'
+            });
+        }
+        
         function updateUI(data, type) {
             // ヘッダーを更新
             document.getElementById('header').textContent = typeTitles[type] || 'ccusage Status';
             
-            // データを表示
-            const cost = data.totals.totalCost.toFixed(2);
-            const tokens = data.totals.totalTokens.toLocaleString();
+            let cost, tokens, modelsData = [];
+            let dateInfo = '';
+            
+            if (type === 'daily' && data.daily && data.daily.length > 0) {
+                // 日本時間での今日のデータを探す
+                const japanToday = getJapanToday();
+                const todayData = data.daily.find(day => day.date === japanToday);
+                
+                if (todayData) {
+                    // 今日のデータがある場合
+                    cost = todayData.totalCost.toFixed(2);
+                    tokens = todayData.totalTokens.toLocaleString();
+                    modelsData = todayData.modelsUsed;
+                    dateInfo = formatJapanDate(todayData.date);
+                } else {
+                    // 今日のデータがない場合は最新のデータを使用
+                    const latestData = data.daily[data.daily.length - 1];
+                    cost = latestData.totalCost.toFixed(2);
+                    tokens = latestData.totalTokens.toLocaleString();
+                    modelsData = latestData.modelsUsed;
+                    dateInfo = formatJapanDate(latestData.date);
+                }
+            } else {
+                // monthly や session の場合は totals を使用
+                cost = data.totals.totalCost.toFixed(2);
+                tokens = data.totals.totalTokens.toLocaleString();
+                
+                if (type === 'monthly' && data.monthly && data.monthly.length > 0) {
+                    modelsData = data.monthly[0].modelsUsed;
+                }
+            }
             
             document.getElementById('cost').textContent = `$${cost}`;
             document.getElementById('tokens').textContent = tokens;
             document.getElementById('status-text').textContent = 'Ready';
             document.getElementById('status-text').className = 'value';
             
-            // 既存のモデル行を削除
+            // 月間総額を表示（dailyタイプの場合）
+            if (type === 'daily' && data.monthlyTotals) {
+                const monthlyCost = data.monthlyTotals.totalCost.toFixed(2);
+                document.getElementById('monthly-cost').textContent = `$${monthlyCost}`;
+            } else if (type === 'monthly') {
+                const monthlyCost = data.totals.totalCost.toFixed(2);
+                document.getElementById('monthly-cost').textContent = `$${monthlyCost}`;
+            } else {
+                document.getElementById('monthly-cost').textContent = '$0.00';
+            }
+            
+            // 既存の追加行を削除
             const existingModelRow = document.getElementById('model-row');
-            if (existingModelRow) {
-                existingModelRow.remove();
+            const existingDateRow = document.getElementById('date-row');
+            if (existingModelRow) existingModelRow.remove();
+            if (existingDateRow) existingDateRow.remove();
+            
+            const statusDiv = document.getElementById('status');
+            
+            // 日付情報を表示（dailyタイプの場合）
+            if (type === 'daily' && dateInfo) {
+                const dateRow = document.createElement('div');
+                dateRow.className = 'row';
+                dateRow.id = 'date-row';
+                dateRow.innerHTML = `
+                    <span class="label">Date:</span>
+                    <span class="value" style="font-size: 11px;">${dateInfo}</span>
+                `;
+                statusDiv.insertBefore(dateRow, statusDiv.lastElementChild);
             }
             
             // モデル情報を表示
-            let modelsData = [];
-            if (type === 'daily' && data.daily && data.daily.length > 0) {
-                modelsData = data.daily[0].modelsUsed;
-            } else if (type === 'monthly' && data.monthly && data.monthly.length > 0) {
-                modelsData = data.monthly[0].modelsUsed;
-            }
-            
             if (modelsData && modelsData.length > 0) {
                 const models = modelsData.join(', ');
-                const statusDiv = document.getElementById('status');
                 const modelRow = document.createElement('div');
                 modelRow.className = 'row';
                 modelRow.id = 'model-row';

@@ -6,6 +6,8 @@ class TrayManager {
     this.tray = null;
     this.windowManager = windowManager;
     this.ccusageService = ccusageService;
+    this.updateTimer = null;
+    this.updateInterval = 5 * 60 * 1000; // 5分間隔
   }
 
   create() {
@@ -26,6 +28,7 @@ class TrayManager {
       this.setupContextMenu();
       this.updateTooltip();
       this.setupEventHandlers();
+      this.startAutoUpdate();
       
       console.log('✅ システムトレイが作成されました');
     } catch (error) {
@@ -133,22 +136,46 @@ class TrayManager {
   async updateTooltipWithData() {
     try {
       const data = await this.ccusageService.getDailyUsage();
-      const cost = data.totals.totalCost.toFixed(2);
-      const tokens = (data.totals.totalTokens / 1000000).toFixed(1);
       
-      const tooltip = `Today's Usage
+      // 今日の日付を取得（日本時間）
+      const today = this.getJapanToday();
+      
+      // 今日のデータのみを取得
+      const todayData = data.daily.find(day => day.date === today);
+      
+      if (todayData) {
+        const cost = todayData.totalCost.toFixed(2);
+        const tokens = (todayData.totalTokens / 1000000).toFixed(1);
+        
+        const tooltip = `Today's Usage
 Cost: $${cost}
 Tokens: ${tokens}M
-Models: ${data.daily?.[0]?.modelsUsed?.length || 0}
+Models: ${todayData.modelsUsed?.length || 0}
 
 Left click: View details
 Right click: Menu`;
-      
-      this.tray.setToolTip(tooltip);
-      
-      // タイトルも更新（macOS）
-      if (process.platform === 'darwin') {
-        this.tray.setTitle(`$${cost}`);
+        
+        this.tray.setToolTip(tooltip);
+        
+        // タイトルも更新（macOS）
+        if (process.platform === 'darwin') {
+          this.tray.setTitle(`$${cost}`);
+        }
+      } else {
+        const tooltip = `Today's Usage
+Cost: $0.00
+Tokens: 0.0M
+Models: 0
+
+Left click: View details
+Right click: Menu`;
+        
+        this.tray.setToolTip(tooltip);
+        
+        // タイトルも更新（macOS）
+        if (process.platform === 'darwin') {
+          this.tray.setTitle('$0.00');
+        }
       }
     } catch (error) {
       console.error('❌ ツールチップ更新エラー:', error);
@@ -173,7 +200,56 @@ Right click: Menu`;
     }
   }
 
+  startAutoUpdate() {
+    // 初回実行
+    this.updateTrayTitle();
+    
+    // 定期実行
+    this.updateTimer = setInterval(() => {
+      this.updateTrayTitle();
+    }, this.updateInterval);
+    
+    console.log('✅ 定期更新開始（5分間隔）');
+  }
+
+  async updateTrayTitle() {
+    try {
+      const data = await this.ccusageService.getDailyUsage();
+      
+      // 今日の日付を取得（日本時間）
+      const today = this.getJapanToday();
+      
+      // 今日のデータのみを取得
+      const todayData = data.daily.find(day => day.date === today);
+      const cost = todayData ? todayData.totalCost.toFixed(2) : '0.00';
+      
+      if (process.platform === 'darwin') {
+        this.tray.setTitle(`$${cost}`);
+      }
+      
+      console.log(`💰 メニューバー金額更新（今日のみ）: $${cost}`);
+    } catch (error) {
+      console.error('❌ メニューバータイトル更新エラー:', error);
+      if (process.platform === 'darwin') {
+        this.tray.setTitle('$ERR');
+      }
+    }
+  }
+
+  // 日本時間での今日の日付を取得
+  getJapanToday() {
+    const now = new Date();
+    // 日本時間（UTC+9）に変換
+    const japanTime = new Date(now.getTime() + (9 * 60 * 60 * 1000));
+    return japanTime.toISOString().split('T')[0]; // YYYY-MM-DD format
+  }
+
   destroy() {
+    if (this.updateTimer) {
+      clearInterval(this.updateTimer);
+      this.updateTimer = null;
+    }
+    
     if (this.tray) {
       this.tray.destroy();
       this.tray = null;
